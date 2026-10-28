@@ -7,6 +7,7 @@ import {
   useMapEvents,
   useMap,
   LayersControl,
+  LayerGroup,
 } from "react-leaflet";
 import type { Report } from "../types/report";
 import "leaflet/dist/leaflet.css";
@@ -60,6 +61,22 @@ const pulseIcon = new L.Icon({
 });
 
 const defaultIcon = new L.Icon.Default();
+
+const nlscTileUrl = (layer: string) =>
+  `https://wmts.nlsc.gov.tw/wmts/${layer}/default/GoogleMapsCompatible/{z}/{y}/{x}`;
+
+// 航遙測分署 2025/11/16 災後航照（經國土測繪中心 WMTS 發布），整期拆成 8 個條帶圖層
+const postDisasterAerialUrls = Array.from({ length: 8 }, (_, i) =>
+  nlscTileUrl(`Asrs_20251116_${i + 1}`)
+);
+
+// Sentinel-2 L2A，由 Microsoft Planetary Computer 出圖磚。
+// 換日期時改成新的 item id（STAC 查 collection sentinel-2-l2a、圖幅 T51QUG）
+const sentinel2Date = "2026/10/01";
+const sentinel2Item = "S2B_MSIL2A_20261001T022529_R046_T51QUG_20261001T043628";
+const sentinel2TileUrl =
+  "https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/WebMercatorQuad/{z}/{x}/{y}@1x.png" +
+  `?collection=sentinel-2-l2a&item=${sentinel2Item}&assets=visual&asset_bidx=visual%7C1%2C2%2C3&nodata=0`;
 
 function MapUpdater({ center }: { center: [number, number] | null }) {
   const map = useMap();
@@ -284,12 +301,51 @@ function MapView({
             />
           </LayersControl.BaseLayer>
 
-          <LayersControl.BaseLayer name="花蓮縣正射影像 (衛星空照)">
+          <LayersControl.BaseLayer name={`最新衛星影像 ${sentinel2Date} (Sentinel-2, 10m)`}>
             <TileLayer
-              attribution="&copy; 花蓮縣政府"
-              url="https://map.hl.gov.tw/arcgis/rest/services/HL_Image_3857/MapServer/tile/{z}/{y}/{x}"
+              attribution="Contains modified Copernicus Sentinel data 2026 &middot; Microsoft Planetary Computer"
+              url={sentinel2TileUrl}
+              maxNativeZoom={15}
               maxZoom={20}
             />
+          </LayersControl.BaseLayer>
+
+          <LayersControl.BaseLayer name="災後航照 2025/11/16 (航遙測分署)">
+            <LayerGroup>
+              {postDisasterAerialUrls.map((url) => (
+                <TileLayer
+                  key={url}
+                  attribution="&copy; 農業部林業及自然保育署航測及遙測分署、內政部國土測繪中心"
+                  url={url}
+                  maxZoom={20}
+                />
+              ))}
+            </LayerGroup>
+          </LayersControl.BaseLayer>
+
+          <LayersControl.BaseLayer name="災前正射影像 114年 (國土測繪中心)">
+            <TileLayer
+              attribution="&copy; 內政部國土測繪中心"
+              url={nlscTileUrl("PHOTO2025")}
+              maxZoom={20}
+            />
+          </LayersControl.BaseLayer>
+
+          {/* 縣府圖磚在 z14 以下只有空白圖框，這幾層改用 114 年正射補上 */}
+          <LayersControl.BaseLayer name="花蓮縣正射影像 (災前空照)">
+            <LayerGroup>
+              <TileLayer
+                attribution="&copy; 內政部國土測繪中心"
+                url={nlscTileUrl("PHOTO2025")}
+                maxZoom={14}
+              />
+              <TileLayer
+                attribution="&copy; 花蓮縣政府"
+                url="https://map.hl.gov.tw/arcgis/rest/services/HL_Image_3857/MapServer/tile/{z}/{y}/{x}"
+                minZoom={15}
+                maxZoom={20}
+              />
+            </LayerGroup>
           </LayersControl.BaseLayer>
 
           {/* 都市土地與非都市土地 (地籍) 疊加層 */}
@@ -341,121 +397,121 @@ function MapView({
         {reports
           .filter((report) => report.lat !== null && report.lng !== null)
           .map((report, index) => {
-            const isLatest = lastSubmittedLocation && 
-                             report.lat === lastSubmittedLocation.lat && 
-                             report.lng === lastSubmittedLocation.lng;
-                             
+            const isLatest = lastSubmittedLocation &&
+              report.lat === lastSubmittedLocation.lat &&
+              report.lng === lastSubmittedLocation.lng;
+
             return (
-              <Marker 
-                key={index} 
+              <Marker
+                key={index}
                 position={[report.lat!, report.lng!]}
                 icon={isLatest ? pulseIcon : defaultIcon}
                 zIndexOffset={isLatest ? 1000 : 0}
               >
-              <Popup>
-                <div
-                  style={{
-                    minWidth: "220px",
-                    maxWidth: "260px",
-                    fontSize: "14px",
-                    color: "#1f2937",
-                  }}
-                >
-                  <p
+                <Popup>
+                  <div
                     style={{
-                      margin: "0 0 10px 0",
-                      fontWeight: 700,
-                      fontSize: "16px",
-                      color: "#1f2d3d",
+                      minWidth: "220px",
+                      maxWidth: "260px",
+                      fontSize: "14px",
+                      color: "#1f2937",
                     }}
                   >
-                    填報資料摘要
-                  </p>
+                    <p
+                      style={{
+                        margin: "0 0 10px 0",
+                        fontWeight: 700,
+                        fontSize: "16px",
+                        color: "#1f2d3d",
+                      }}
+                    >
+                      填報資料摘要
+                    </p>
 
-                  <PopupRow label="資料日期：" value={report.reportDate} />
-                  <PopupRow label="填表人：" value={report.respondentType} />
-                  <PopupRow label="所屬部落：" value={report.tribeName || "未填"} />
-                  <PopupRow label="地址：" value={report.address || "未填"} />
-                  <PopupRow label="地點名稱：" value={report.placeName || "未填"} />
-                  <PopupRow label="地號：" value={report.landParcel || "未填"} />
-                  <PopupRow label="土地受災：" value={report.hasLandDamage} />
-                  <PopupRow label="建物受災：" value={report.hasBuildingDamage} />
+                    <PopupRow label="資料日期：" value={report.reportDate} />
+                    <PopupRow label="填表人：" value={report.respondentType} />
+                    <PopupRow label="所屬部落：" value={report.tribeName || "未填"} />
+                    <PopupRow label="地址：" value={report.address || "未填"} />
+                    <PopupRow label="地點名稱：" value={report.placeName || "未填"} />
+                    <PopupRow label="地號：" value={report.landParcel || "未填"} />
+                    <PopupRow label="土地受災：" value={report.hasLandDamage} />
+                    <PopupRow label="建物受災：" value={report.hasBuildingDamage} />
 
-                  {report.hasLandDamage === "是" && (
-                    <DetailBlock title="查看土地受災詳細資料">
-                      <PopupRow label="土地受災戶：" value={report.landVictimType} />
-                      <PopupRow
-                        label="土地泥沙高度："
-                        value={report.landMudHeight || "未填"}
-                      />
-                      <PopupRow label="土地受災程度：" value={report.landDamageLevel} />
+                    {report.hasLandDamage === "是" && (
+                      <DetailBlock title="查看土地受災詳細資料">
+                        <PopupRow label="土地受災戶：" value={report.landVictimType} />
+                        <PopupRow
+                          label="土地泥沙高度："
+                          value={report.landMudHeight || "未填"}
+                        />
+                        <PopupRow label="土地受災程度：" value={report.landDamageLevel} />
+                      </DetailBlock>
+                    )}
+
+                    {report.hasBuildingDamage === "是" && (
+                      <DetailBlock title="查看建物受災詳細資料">
+                        <PopupRow label="建物受災戶：" value={report.buildingVictimType} />
+                        <PopupRow
+                          label="建物型態："
+                          value={
+                            report.buildingType === "其它" && report.buildingTypeOther
+                              ? `${report.buildingType}（${report.buildingTypeOther}）`
+                              : report.buildingType
+                          }
+                        />
+                        <PopupRow
+                          label="建物樓層數："
+                          value={report.buildingFloors ?? "未填"}
+                        />
+                        <PopupRow
+                          label="建物居住人數："
+                          value={report.buildingResidents ?? "未填"}
+                        />
+                        <PopupRow label="建物建築材質：" value={report.buildingMaterial} />
+                        <PopupRow
+                          label="建物有無建造執照："
+                          value={report.hasBuildingPermit}
+                        />
+                        <PopupRow
+                          label="建物有無使用執照："
+                          value={report.hasUsePermit}
+                        />
+                        <PopupRow
+                          label="建物災時淹水高度："
+                          value={report.buildingFloodHeight || "未填"}
+                        />
+                        <PopupRow
+                          label="建物目前泥沙堆積高度："
+                          value={report.buildingMudHeight || "未填"}
+                        />
+                        <PopupRow
+                          label="建物受災程度："
+                          value={report.buildingDamageLevel}
+                        />
+                        <PopupRow
+                          label="建物受損面積："
+                          value={
+                            report.damagedAreaPing !== null
+                              ? `${report.damagedAreaPing} 坪`
+                              : "未填"
+                          }
+                        />
+                      </DetailBlock>
+                    )}
+
+                    <DetailBlock title="查看其他基本資料">
+                      <PopupRow label="權屬情況：" value={report.ownership} />
+                      <PopupRow label="用途：" value={report.usage} />
+                      <PopupRow label="是否原保地：" value={report.isIndigenousReserve} />
                     </DetailBlock>
-                  )}
 
-                  {report.hasBuildingDamage === "是" && (
-                    <DetailBlock title="查看建物受災詳細資料">
-                      <PopupRow label="建物受災戶：" value={report.buildingVictimType} />
-                      <PopupRow
-                        label="建物型態："
-                        value={
-                          report.buildingType === "其它" && report.buildingTypeOther
-                            ? `${report.buildingType}（${report.buildingTypeOther}）`
-                            : report.buildingType
-                        }
-                      />
-                      <PopupRow
-                        label="建物樓層數："
-                        value={report.buildingFloors ?? "未填"}
-                      />
-                      <PopupRow
-                        label="建物居住人數："
-                        value={report.buildingResidents ?? "未填"}
-                      />
-                      <PopupRow label="建物建築材質：" value={report.buildingMaterial} />
-                      <PopupRow
-                        label="建物有無建造執照："
-                        value={report.hasBuildingPermit}
-                      />
-                      <PopupRow
-                        label="建物有無使用執照："
-                        value={report.hasUsePermit}
-                      />
-                      <PopupRow
-                        label="建物災時淹水高度："
-                        value={report.buildingFloodHeight || "未填"}
-                      />
-                      <PopupRow
-                        label="建物目前泥沙堆積高度："
-                        value={report.buildingMudHeight || "未填"}
-                      />
-                      <PopupRow
-                        label="建物受災程度："
-                        value={report.buildingDamageLevel}
-                      />
-                      <PopupRow
-                        label="建物受損面積："
-                        value={
-                          report.damagedAreaPing !== null
-                            ? `${report.damagedAreaPing} 坪`
-                            : "未填"
-                        }
-                      />
+                    <DetailBlock title="查看座標資訊">
+                      <PopupRow label="緯度：" value={report.lat} />
+                      <PopupRow label="經度：" value={report.lng} />
                     </DetailBlock>
-                  )}
-
-                  <DetailBlock title="查看其他基本資料">
-                    <PopupRow label="權屬情況：" value={report.ownership} />
-                    <PopupRow label="用途：" value={report.usage} />
-                    <PopupRow label="是否原保地：" value={report.isIndigenousReserve} />
-                  </DetailBlock>
-
-                  <DetailBlock title="查看座標資訊">
-                    <PopupRow label="緯度：" value={report.lat} />
-                    <PopupRow label="經度：" value={report.lng} />
-                  </DetailBlock>
-                </div>
-              </Popup>
-            </Marker>
+                  </div>
+                </Popup>
+              </Marker>
             );
           })}
       </MapContainer>
